@@ -1,0 +1,54 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Acquire a managed-identity token for Cognitive Services -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com"
+                                         output-token-variable-name="managed-id-access-token"
+                                         ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
+        </set-header>
+        <!-- Route to the Anthropic backend -->
+        <set-backend-service backend-id="{backend-id}" />
+    </inbound>
+    <backend>
+        <!-- Retry on 429 or 503 for the Anthropic endpoint -->
+        <retry count="2"
+               interval="1"
+               first-fast-retry="false"
+               condition="@(context.Response.StatusCode == 429 || context.Response.StatusCode == 503)">
+            <forward-request buffer-request-body="true" />
+        </retry>
+    </backend>
+    <outbound>
+        <base />
+        <!-- Emit custom token-usage metrics for Anthropic responses.
+             Anthropic returns usage in: input_tokens, output_tokens -->
+        <emit-metric name="AnthropicTokenUsage" namespace="AI-Gateway">
+            <dimension name="API ID" value="@(context.Api.Id)" />
+            <dimension name="Subscription ID" value="@(context.Subscription.Id)" />
+            <dimension name="Model" value="@(context.Request.MatchedParameters.GetValueOrDefault("model", "unknown"))" />
+            <dimension name="Input Tokens"
+                       value="@{
+                           var body = context.Response.Body?.As<JObject>(preserveContent: true);
+                           return body?["usage"]?["input_tokens"]?.ToString() ?? "0";
+                       }" />
+            <dimension name="Output Tokens"
+                       value="@{
+                           var body = context.Response.Body?.As<JObject>(preserveContent: true);
+                           return body?["usage"]?["output_tokens"]?.ToString() ?? "0";
+                       }" />
+        </emit-metric>
+    </outbound>
+    <on-error>
+        <base />
+        <choose>
+            <when condition="@(context.Response.StatusCode == 503)">
+                <return-response>
+                    <set-status code="503" reason="Service Unavailable" />
+                    <set-body>{"error":{"code":"503","message":"Anthropic backend is currently unavailable. Please retry later."}}</set-body>
+                </return-response>
+            </when>
+        </choose>
+    </on-error>
+</policies>
