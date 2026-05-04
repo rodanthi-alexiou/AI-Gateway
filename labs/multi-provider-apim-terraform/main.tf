@@ -322,7 +322,7 @@ resource "azapi_resource" "apim-anthropic-backend" {
 
   body = {
     properties = {
-      url         = "${azapi_resource.anthropic-ai-services[0].output.properties.endpoint}models"
+      url         = "${azapi_resource.anthropic-ai-services[0].output.properties.endpoint}anthropic"
       protocol    = "http"
       description = "Anthropic Claude backend via Azure AI Foundry Marketplace"
 
@@ -401,7 +401,7 @@ resource "azurerm_api_management_api" "apim-api-anthropic" {
   }
 }
 
-# Anthropic API — catch-all operation (pass-through to Foundry models endpoint)
+# Anthropic API — native Messages API endpoint (Anthropic format, not OpenAI-compatible)
 resource "azurerm_api_management_api_operation" "anthropic-messages" {
   count = var.enable_anthropic ? 1 : 0
   
@@ -409,16 +409,10 @@ resource "azurerm_api_management_api_operation" "anthropic-messages" {
   api_name            = azurerm_api_management_api.apim-api-anthropic[0].name
   api_management_name = azurerm_api_management.apim.name
   resource_group_name = azurerm_resource_group.rg.name
-  display_name        = "Messages"
+  display_name        = "Create Message"
   method              = "POST"
-  url_template        = "/{model}/chat/completions"
-  description         = "Send a message to an Anthropic Claude model"
-
-  template_parameter {
-    name     = "model"
-    required = true
-    type     = "string"
-  }
+  url_template        = "/v1/messages"
+  description         = "Send a message to an Anthropic Claude model using the native Anthropic Messages API format"
 
   response {
     status_code = 200
